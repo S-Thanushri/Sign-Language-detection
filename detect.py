@@ -1,70 +1,56 @@
 import cv2
-import mediapipe as mp
-import joblib
+import numpy as np
+import tensorflow as tf
 
-# Initialize Mediapipe's Hand class
-mp_hands = mp.solutions.hands.Hands(static_image_mode=False, max_num_hands=1, min_detection_confidence=0.5)
+# Load the pre-trained sign language recognition model
+model = tf.keras.models.load_model(file_path)  # Replace with your model file path
 
-def load_classifier(model_path):
-    # Load the pre-trained classifier
-    classifier = joblib.load(model_path)
-    return classifier
+# Define a list of class labels corresponding to the signs the model can recognize
+class_labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
 
-def predict_hand_sign(classifier, landmarks):
-    # Predict the hand sign using the classifier
-    sign = classifier.predict([landmarks.flatten()])
-    return sign[0]
+# Initialize the webcam
+cap = cv2.VideoCapture(0)
 
-def detect_hand_sign():
-    # Load the pre-trained classifier
-    classifier = load_classifier('classifier.pkl')
+# Define the coordinates for your ROI (region of interest)
+roi_x = 100
+roi_y = 100
+roi_width = 200
+roi_height = 200
 
-    # Define the mapping of labels to meanings
-    label_to_meaning = {
-        'A': 'Letter A',
-        'B': 'Letter B',
-        'C': 'Letter C',
-        # Add more mappings for other letters here
-    }
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-    # Start video capture
-    cap = cv2.VideoCapture(0)
+    # Extract the ROI from the frame
+    roi = frame[roi_y:roi_y+roi_height, roi_x:roi_x+roi_width]
 
-    while True:
-        ret, frame = cap.read()
+    # Convert the ROI to grayscale
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-        if not ret:
-            break
+    # Preprocess the grayscale image (resize, normalize, etc.)
+    resized_roi = cv2.resize(gray_roi, (28, 28))  # Resize to 28x28 pixels
+    normalized_roi = resized_roi / 255.0  # Normalize pixel values to the range [0, 1]
+    input_data = np.expand_dims(normalized_roi, axis=0)  # Add a batch dimension
+    input_data = np.expand_dims(input_data, axis=-1)  # Add a channel dimension
 
-        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    # Perform sign language recognition
+    predictions = model.predict(input_data)
+    predicted_class = class_labels[np.argmax(predictions)]
 
-        # Detect hands in the image
-        results = mp_hands.process(image_rgb)
+    # Display the prediction on the frame
+    cv2.putText(frame, f"Sign: {predicted_class}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        if results.multi_hand_landmarks:
-            for hand_landmarks in results.multi_hand_landmarks:
-                # Draw the landmarks on the image
-                for _, landmark in enumerate(hand_landmarks.landmark):
-                    height, width, _ = frame.shape
-                    cx, cy = int(landmark.x * width), int(landmark.y * height)
-                    cv2.circle(frame, (cx, cy), 5, (0, 255, 0), -1)
+    # Draw a rectangle around the ROI
+    cv2.rectangle(frame, (roi_x, roi_y), (roi_x+roi_width, roi_y+roi_height), (0, 255, 0), 2)
 
-                # Convert landmarks to a 1D array
-                landmarks = []
-                for landmark in hand_landmarks.landmark:
-                    landmarks.extend([landmark.x, landmark.y, landmark.z])
+    # Display the frame with the prediction
+    cv2.imshow('Sign Language Recognition', frame)
 
-                # Predict hand sign
-                sign = predict_hand_sign(classifier, landmarks)
-                meaning = label_to_meaning.get(sign, 'Unknown')
-                cv2.putText(frame, f"Sign: {meaning}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+    # Exit the program when the 'q' key is pressed
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
 
-        cv2.imshow("Hand Sign Detection", frame)
-        if cv2.waitKey(1) & 0xFF == 27:  # Press 'Esc' to exit
-            break
-
-    cap.release()
-    cv2.destroyAllWindows()
-
-if __name__ == "__main__":
-    detect_hand_sign()
+# Release the webcam and close all OpenCV windows
+cap.release()
+cv2.destroyAllWindows()
